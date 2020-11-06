@@ -1,17 +1,20 @@
-from enum import Enum
-import math
-import random
+# TODO: De verdad hace falta un enumerable para un valor Booleano?
+from enum import Enum, auto
+
 import itertools
-from collections import defaultdict
+
 import pandas as pd
 import numpy as np
-from scipy.optimize import minimize, LinearConstraint
+from scipy import optimize
 from scipy.stats import norm
 from scipy.spatial.distance import pdist
 import scipy.integrate as integrate
+
 # TEST AND DEBUG
-import pdb
 import unittest
+import random
+import pdb
+
 
 def expand_grid(data_dict):
     """Builds a pandas dataframe with some values
@@ -27,139 +30,194 @@ def expand_grid(data_dict):
     rows = itertools.product(*data_dict.values())
     return pd.DataFrame.from_records(rows, columns=data_dict.keys())
 
+
 class TestHitOrMissModule(unittest.TestCase):
-    def setUp(self):
-        df1 = pd.DataFrame(np.random.randint(100,size=(3*64,1)),
-                           columns=['mg ingeridos'])
-        # TODO: Como automatizar que todos los datos de DEV sean numericos???
-        df2 = pd.DataFrame(pd.to_numeric(pd.date_range('2018-01-01', periods=3*64, freq='10 Min')),
-                           columns=['horas'])
-        df3 = expand_grid({'edad': [15, 20, 25],
-                           'peso': [75, 80, 85, 90],
-                           'genero': ['Masculino', 'Femenino', 'Neutro', 'Fluido'],
-                           'nombre': ['Mario', 'Lola', 'Antonio', 'Pedro']})
-        epsilon = {'mg ingeridos': 30,
-                   'horas': 100,
-                   'edad': 1,
-                   'peso': 5}
-        self.test = pd.concat([df1, df2, df3], axis=1)
-        (m, n) = self.test.shape
-        self.blank_frequency = dict() 
-        for i, col in zip(range(n),self.test):
-            for j in range(min(i,m)):
-                self.test.loc[j,col] = np.nan
-            self.blank_frequency[col] = i/m
-                 
+    
+    # def setUp(self):
+        # df1 = pd.DataFrame(np.random.randint(100, size=(3 * 64, 1)),
+        #                    columns=['mg ingeridos'])
+        # # TODO: Como automatizar que todos los datos de DEV sean numericos???
+        # df2 = pd.DataFrame(pd.to_numeric(
+        #     pd.date_range('2018-01-01', periods=3 * 64, freq='10 Min')),
+        #                    columns=['horas'])
+        # df3 = expand_grid({
+        #     'edad': [15, 20, 25],
+        #     'peso': [75, 80, 85, 90],
+        #     'genero': ['Masculino', 'Femenino', 'Neutro', 'Fluido'],
+        #     'nombre': ['Mario', 'Lola', 'Antonio', 'Pedro']
+        # })
+        # epsilon = {'mg ingeridos': 30, 'horas': 100, 'edad': 1, 'peso': 5}
+        # self.data = pd.concat([df1, df2, df3], axis=1)
+        # self.data = pd.concat([self.data, self.data],
+        #                       axis=0,
+        #                       ignore_index=True)
+        # (m, n) = self.data.shape
+        # self.blank_frequency = dict()
+        # for i, col in zip(range(n), self.data):
+        #     for j in range(min(i, m)):
+        #         self.data.loc[j, col] = np.nan
+        #     self.blank_frequency[col] = i / m
 
-        df4 = pd.DataFrame(np.random.randint(100,size=(16,1)),
-                          columns=['mg ingeridos'])
-        df5 = pd.DataFrame(pd.to_numeric(pd.date_range('2018-01-01', periods=16, freq='10 Min')),
-                           columns=['horas'])
-        df6 = expand_grid({'edad': [15, 20],
-                           'peso': [75, 90],
-                           'genero': ['Masculino', 'Femenino'],
-                           'nombre': ['Mario', 'Lola']})
-        df7 =pd.DataFrame(np.arange(16),
-                          columns=['pairnumber'])
+        # self.train = pd.DataFrame(np.array(
+        #     [[str(x), str(int((x + m / 2) % m))] for x in range(m)]),
+        #                           columns=["Issue_Id", "Duplicate"])
 
-        train = pd.concat([df4, df5, df6, df7], axis=1)
-        self.train = pd.concat([train, train], axis=0)
-        
-        alg_selection = [Algorithm.DEV]*4 + [Algorithm.HOM]*2
-        self.model = hom_model(self.train, self.test, alg_selection, epsilon)
+        # alg_selection = [Algorithm.DEV] * 4 + [Algorithm.HOM] * 2
+        # self.model = hom_model(self.data, self.train, alg_selection, epsilon)
 
     def test_blank_frequencies(self):
-        self.assertEqual(self.model.bs, self.blank_frequency,
+        df = pd.DataFrame({'A': [np.nan, 1.0, 1.0, 1.0],
+                           'B': [np.nan, np.nan, 1.0, 1.0],
+                           'C': [np.nan, np.nan, np.nan, 1.0],
+                           'D': [np.nan, np.nan, np.nan, np.nan]})
+        model = hom_model(df, None, [Algorithm.HOM]*4, None)
+        bf = {'A': 0.25, 'B': 0.5, 'C': 0.75, 'D': 1.0}
+        self.assertEqual(model.bs, bf,
                          'incorrect frequency of blank elements')
 
+    def test_relative_frequencies(self):
+        df = pd.DataFrame({'A': [1.0, 1.0, 1.0, 1.0],
+                           'B': [1.0, 1.0, 2.0, 2.0],
+                           'C': [1.0, 2.0, 2.0, 3.0],
+                           'D': [1.0, 2.0, 3.0, 4.0]})
+        model = hom_model(df, None, [Algorithm.HOM]*4, None)
+        rf = {'A': {1.0: 1.0},
+              'B': {1.0: 0.5,
+                    2.0: 0.5},
+              'C': {1.0: 0.25,
+                    2.0: 0.5,
+                    3.0: 0.25},
+              'D': {1.0: 0.25,
+                    2.0: 0.25,
+                    3.0: 0.25,
+                    4.0: 0.25}}
+        self.assertEqual(model.betas, rf,
+                         'incorrect relative frequency of elements')
+
+    def test_calculate_differences(self):
+        df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
+                           'B': [5.0, 5.0, 6.0, 7.0]})
+        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+                              'Duplicate': ["1", "0", "3", "2"]})
+        model = hom_model(df, train, [Algorithm.DEV]*2, None)
+        model_ds = dict()
+        for k in model.ds:
+            model_ds[k] = list(model.ds[k])
+        ds = {'A': [1.0,2.0,3.0,1.0,2.0,1.0],
+              'B': [0.0,1.0,2.0,1.0,2.0,1.0]}
+        
+        self.assertEqual(model_ds, ds,
+                         'incorrect differences')
+
+        
+    def test_discordant_pairs_frequency(self):
+        df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
+                           'B': [5.0, 5.0, 6.0, 7.0]})
+        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+                              'Duplicate': ["1", "0", "3", "2"]})
+        model = hom_model(df, train, [Algorithm.HOM]*2, None)
+        dp = {'A': 2/3, 'B': 2/5}
+        self.assertEqual(model.cs, dp,
+                         'incorrect discordant pairs freq.')
+        
+        
+        
     # Se puede tener un valor None dentro de un dataframe
     # def test_nan_analog_for_strings(self):
-        
-    def test_normal_fits(self):
-        d = dict()
-        sel = [alg == Algorithm.DEV for alg in self.model.col_alg]
-        for col in self.test.loc[:,sel]:
-            B = self.test.loc[:,col].to_numpy()
-            withoutnans = B[np.logical_not(np.isnan(B))]
-            d[col] = norm.fit(withoutnans)
-        self.assertEqual(d, self.model.fs)
-            
+
+    # def test_normal_fits(self):
+    #     d = dict()
+    #     sel = [alg == Algorithm.DEV for alg in self.model.algs]
+    #     for col in self.data.loc[:,sel]:
+    #         B = self.data.loc[:,col].to_numpy()
+    #         withouans = B[np.logical_not(np.isnan(B))]
+    #         d[col] = norm.fit(withoutnans)
+    #     self.assertEqual(d, self.model.fs)
 
     # def test_frequency_every_element_appears(self):
 
 
-    
-
 class Algorithm(Enum):
-    HOM = 0
-    DEV = 1
+    HOM = auto()
+    DEV = auto()
+
 
 class hom_model:
     """Hit or miss model to estimate how similar two rows in a database are
 
     Atributes:
-       test: dataframe that contains the database
-       col_alg: array of Algorithm describing the algorithm used for each column
+       data: dataframe that contains the database
+       algs: array of Algorithm describing the algorithm used for each column
        bs: dict where each column is associated to its frequency of blanks
-       betas: dict where each column is associated to the frequency of each value
+       betas: dict of dicts where each column is associated to a dict containing
+       the frequency of each value
        fs: dict containing mean and var. of a normal fit to each column
        ds: dict containing an array of differences of values inside each column
        a1s: EM estimates of parameter a1 for each DEV column 
        a2s: EM estimates of parameter a2 for each DEV column       
        sq_sigmas: EM estimates of parameter sq_sigma for each DEV column       
     """
-    def __init__(self, train, test, col_alg, epsilon):
+    def __init__(self, data, train, algs, eps):
         """Initialize hit or miss probabilistic model
         
         Args:
+            data: dataframe with the data
             train: dataframe used to train the model
-            test: dataframe with the data
-            col_alg: array specifying the algorithm used for each column
-            epsilon: dictionary that stores possible deviations that the data inside a column can have
+            algs: array specifying the algorithm used for each column
+            eps: dictionary that stores possible deviations that the data inside a column can have
             
         Returns:
             A hom model for estimating how similar two rows of the data are
         """
-        self.test = test
-        self.col_alg = col_alg
-        self.epsilon = epsilon
+        self.data = data
+        self.algs = algs
+        self.eps = eps
         self.bs = self.blank_freq()
         self.betas = self.rel_freq()
-        self.fs = self.norm_fits()
+        self.fs = self.norm_fits(train)
         self.ds = self.differences(train)
         self.cs = self.dp_freq(train)
-        self.a1s, self.a2s, self.sq_sigmas = self.calculate_frequencies(train)
+        self.a1s, self.a2s, self.sq_sigmas = self.calculate_frequencies()
+        self.eps = eps
+        # UN GASTO ENORME DE MEMORIA
+        self.isna = self.data.isna()
+        # self.t = self.calc_thres(train)
 
     def blank_freq(self):
         """Returns the blank frequencies for each column"""
-        (n,_) = self.test.shape
+        (n, _) = self.data.shape
         ret = dict()
-        for col, x in zip(self.test.columns,self.test.count()):
-            ret[col] = 1 - x/n
+        for col, x in zip(self.data.columns, self.data.count()):
+            ret[col] = 1 - x / n
         return ret
 
     def rel_freq(self):
         """Returns the frequency for each value inside each column"""
-        (n,_) = self.test.shape
+        (n, _) = self.data.shape
         ret = dict()
-        sel = [alg == Algorithm.HOM for alg in self.col_alg]        
-        for col in self.test.loc[:,sel]:
-            d = defaultdict(int)
-            for x in self.test.loc[:,col]:
-                d[x] += 1
+        sel = [alg == Algorithm.HOM for alg in self.algs]
+        for col in self.data.loc[:, sel]:
+            d = dict()
+            for x in self.data.loc[:, col]:
+                if x not in d:
+                    d[x] = 1
+                else:
+                    d[x] += 1
             for k in d:
                 d[k] /= n
             ret[col] = d
         return ret
 
-    def norm_fits(self):
-        """Fits a normal distribution for each column and returns sufficient statisticals"""
+    def norm_fits(self, train):
+        """Fits a normal distribution to the differences of the elemenst in a numerical column"""
+        train_data = train.dropna().loc[:, 'Issue_id']
         ret = dict()
-        sel = [alg == Algorithm.DEV for alg in self.col_alg]
-        for col in self.test.loc[:,sel]:
-            xs = self.test.loc[:,col].to_numpy()
-            withoutnans = xs[np.logical_not(np.isnan(xs))]
-            ret[col] = norm.fit(withoutnans)
+        sel = [alg == Algorithm.DEV for alg in self.algs]
+        for col in self.data.loc[:, sel]:
+            xs = self.data.loc[train_data, col].dropna().to_numpy()
+            # TODO: por que trato de aproximar una distribucion normal a los datos si tiene que ser a la diferencia de los datos.
+            ds = pdist(xs.reshape(len(xs), 1))
+            ret[col] = norm.fit(ds)
         return ret
 
     def differences(self, train):
@@ -171,13 +229,22 @@ class hom_model:
         Returns:
             A dict containing for each column all the possible differences between the data.
         """
-        df = train.loc[:,self.test.columns]
+        try:
+            train.shape
+        except AttributeError as N:
+            err_msg ="Incorrect use of function differences:\n"
+            print(err_msg, self.differences.__doc__)
+            return None
+
+        vals = train.dropna().iloc[:, 0]
+        indexes = [int(x) for x in vals]
+        df = self.data.loc[indexes]
         ret = dict()
-        (m,_) = df.shape
-        sel = [alg == Algorithm.DEV for alg in self.col_alg] 
-        for col in df.loc[:,sel]:
-            xs = df.loc[:,col].to_numpy()
-            ret[col] = pdist(xs.reshape(m,1))
+        (m, _) = df.shape
+        sel = [alg == Algorithm.DEV for alg in self.algs]
+        for col in df.loc[:, sel]:
+            xs = df.loc[:, col].to_numpy()
+            ret[col] = pdist(xs.reshape(m, 1))
         return ret
 
     def dp_freq(self, train):
@@ -189,28 +256,44 @@ class hom_model:
         Returns:
             A dict containing for each column frequencies of discordant pairs in identified duplicates.
         """
-        (n, _) = train.shape
+        try:
+            train.shape
+        except AttributeError as N:
+            err_msg ="Incorrect use of function dp_freq:\n"
+            print(err_msg, self.dp_freq.__doc__)
+            return None
+
+        groups = train.dropna()  # Drop rows with invalid values
         ret = dict()
-        grouped = train.groupby('pairnumber')
-        sel = [alg == Algorithm.HOM for alg in self.col_alg]        
-        for col in self.test.loc[:,sel]:
-            ret[col] = 0
-            for pair, group in grouped:
-                elems = group.loc[:,col].to_numpy()
-                elems = set(elems)
-                if len(elems)==1:
-                    ret[col] += 1
+        sel = [alg == Algorithm.HOM for alg in self.algs]
+        cols = self.data.loc[:, sel].columns
+        for _, row in groups.iterrows():
+            i = int(row[0])  # StringToInt to get i
+            js = [int(x)
+                  for x in row[1].split(';')]  # [StringToInt] to get [j]
+            for j in js:
+                for col in cols:
+                    if col not in ret:
+                        ret[col] = 0  
+                    if self.data.loc[i, col] != self.data.loc[j, col]:
+                        # Notice that every discordant pair DP is
+                        # added twice. First when chosen by (i,j)
+                        # and second when chosen by (j,i)
+                        ret[col] += 1  # Adds a new discordant pair
+        for col in cols:
             s = 0
             for key in self.betas[col]:
                 s += (self.betas[col][key])**2
-            ret[col] = ret[col]/(n*(1-s))
+            # The two is due to the fact that DPs are added twice
+            (n, _) = groups.shape
+            ret[col] /= 2 * n * (1 - s)
         return ret
-    
+
     def calc_as(self):
         """Calculate probability of miss for each column"""
         ret = dict()
-        sel = [alg == Algorithm.HOM for alg in self.col_alg]        
-        for col in self.data.loc[:,sel]:
+        sel = [alg == Algorithm.HOM for alg in self.algs]
+        for col in self.data.loc[:, sel]:
             b = self.bs[col]
             c = self.cs[col]
             # SOLVE X^2 + 2(b-1)X + c = 0 with 0 <= X <= 1
@@ -218,40 +301,50 @@ class hom_model:
             ret[col] = a
         return ret
 
-    def get_correct_root(b,c):
+    def get_correct_root(b, c):
         """Gives a solution for X^2 + 2(b-1)X + c = 0 with 0 <= X <= 1"""
-        root1 = (-2*(b-1) + math.sqrt((-2*(b-1))**2 - 4*c))/2
-        root2 = (-2*(b-1) - math.sqrt((-2*(b-1))**2 - 4*c))/2
-        if 0 <= root1 <=1:
+        root1 = (-2 * (b - 1) + np.sqrt((-2 * (b - 1))**2 - 4 * c)) / 2
+        root2 = (-2 * (b - 1) - np.sqrt((-2 * (b - 1))**2 - 4 * c)) / 2
+        if 0 <= root1 <= 1:
             return root1
-        elif 0 <= root2 <=1:
+        elif 0 <= root2 <= 1:
             return root2
         else:
             raise Exception("Invalid probability")
-        
 
-    def calculate_frequencies(self, train):
+    def calculate_frequencies(self):
         """Calculate estimates for HOM DEV algorithm"""
         a1s, a2s, sq_sigmas = dict(), dict(), dict()
-        sel = [alg == Algorithm.DEV for alg in self.col_alg]
-        cols = self.test.loc[:,sel].columns
-        for col in train.loc[:,cols]:
+        sel = [alg == Algorithm.DEV for alg in self.algs]
+        cols = self.data.loc[:, sel].columns
+        for col in cols:
             a1, a2, sq_sigma = self.hom_mix_fitting(col)
             a1s[col] = a1
             a2s[col] = a2
             sq_sigmas[col] = sq_sigma
         return a1s, a2s, sq_sigmas
-    
+
     def hom_mix_fitting(self, col):
+        """Computes the a1, a2 and variance for a column of the dataset
+        
+        Args:
+            col: The column where the hit or miss deviation algorithm 
+            calculates constants
+            
+        Returns:
+            A triple with the EM algorithm output for a1, a2 and variance
+        """
         ds = self.ds[col]
         sq_sigma = np.var(ds)
         a1, a2 = random.random(), random.random()
         aux1, aux2, aux3 = 0, 0, 0
         eps = 0.001
-        while np.linalg.norm([a1-aux1, a2-aux2, sq_sigma-aux3]) > eps:
+        v = [a1 - aux1, a2 - aux2, sq_sigma - aux3]
+        while np.linalg.norm(v) > eps:
+            print(np.linalg.norm(v))
             aux1, aux2, aux3 = a1, a2, sq_sigma
             a1, a2, sq_sigma = self.hom_mix_fitting_loop(col, a1, a2, sq_sigma)
-            print(np.linalg.norm([a1-aux1, a2-aux2, sq_sigma-aux3]))
+            v = [a1 - aux1, a2 - aux2, sq_sigma - aux3]
         return a1, a2, sq_sigma
 
     def hom_mix_fitting_loop(self, col, a1, a2, sq_sigma):
@@ -264,28 +357,30 @@ class hom_model:
         gamma4s = np.array([])
 
         for d in ds:
-            gamma1, gamma2, gamma3, gamma4 = self.gammas(col, d, a1, a2, b, sq_sigma)
-            gamma1s = np.append(gamma1s,[gamma1])
-            gamma2s = np.append(gamma2s,[gamma2])
-            gamma3s = np.append(gamma3s,[gamma3])
-            gamma4s = np.append(gamma4s,[gamma4])
-            
-        num = np.sum((gamma3s + gamma4s*0.5)*ds**2)
-        den = np.sum(gamma3s + gamma4s)
-        sq_sigma = num/den
+            gamma1, gamma2, gamma3, gamma4 = self.gammas(
+                col, d, a1, a2, b, sq_sigma)
+            gamma1s = np.append(gamma1s, [gamma1])
+            gamma2s = np.append(gamma2s, [gamma2])
+            gamma3s = np.append(gamma3s, [gamma3])
+            gamma4s = np.append(gamma4s, [gamma4])
 
-        a1, a2 = self.update_as(col, a1, a2, b, ds, sq_sigma, gamma1s, gamma2s, gamma3s, gamma4s)
+        num = np.sum((gamma3s + gamma4s * 0.5) * ds**2)
+        den = np.sum(gamma3s + gamma4s)
+        sq_sigma = num / den
+
+        a1, a2 = self.update_as(col, a1, a2, b, ds, sq_sigma, gamma1s, gamma2s,
+                                gamma3s, gamma4s)
 
         return a1, a2, sq_sigma
 
     def alfa1(a1, a2, b):
-        return (1-a1-a2-b)**2
+        return (1 - a1 - a2 - b)**2
 
     def alfa2(a2, b):
-        return a2*(2-2*b-a2)
+        return a2 * (2 - 2 * b - a2)
 
     def alfa3(a1, a2, b):
-        return 2*a1*(1-a1-a2-b)
+        return 2 * a1 * (1 - a1 - a2 - b)
 
     def alfa4(a1):
         return a1**2
@@ -295,7 +390,7 @@ class hom_model:
             return 1
         else:
             return 0
-    
+
     def gammas(self, col, di, a1, a2, b, sq_sigma):
         alfa1 = hom_model.alfa1(a1, a2, b)
         alfa2 = hom_model.alfa2(a2, b)
@@ -305,23 +400,26 @@ class hom_model:
         loc, scale = self.fs[col]
         f = norm.pdf(di, loc, scale)
         norm1 = norm.pdf(di, 0, sq_sigma)
-        norm2 = norm.pdf(di, 0, 2*sq_sigma)
-        gamma1 = alfa1*delta
-        gamma2 = alfa2*f
-        gamma3 = alfa3*norm1
-        gamma4 = alfa4*norm2
+        norm2 = norm.pdf(di, 0, 2 * sq_sigma)
+        gamma1 = alfa1 * delta
+        gamma2 = alfa2 * f
+        gamma3 = alfa3 * norm1
+        gamma4 = alfa4 * norm2
         den = gamma1 + gamma2 + gamma3 + gamma4
-        return gamma1/den, gamma2/den, gamma3/den, gamma4/den
+        return gamma1 / den, gamma2 / den, gamma3 / den, gamma4 / den
 
-    def update_as(self, col, a1, a2, b, ds, sq_sigma, gamma1s, gamma2s, gamma3s, gamma4s):
+    def update_as(self, col, a1, a2, b, ds, sq_sigma, gamma1s, gamma2s,
+                  gamma3s, gamma4s):
         x0 = [a1, a2]
-        cons = ({'type': 'ineq', 'fun': lambda x: x[0] + x[1] < 1-b})
-        bnds = ((0, 1), (0,1))
-        fun = lambda x: - self.expected_likelihood(col, x, b, ds, sq_sigma, gamma1s, gamma2s, gamma3s, gamma4s)
-        res = minimize(fun, x0)
+        cons = ({'type': 'ineq', 'fun': lambda x: x[0] + x[1] < 1 - b})
+        bnds = ((0, 1), (0, 1))
+        fun = lambda x: -self.expected_likelihood(
+            col, x, b, ds, sq_sigma, gamma1s, gamma2s, gamma3s, gamma4s)
+        res = optimize.minimize(fun, x0)
         return res.x[0], res.x[1]
 
-    def expected_likelihood(self, col, x, b, ds, sq_sigma, gamma1s, gamma2s, gamma3s, gamma4s):
+    def expected_likelihood(self, col, x, b, ds, sq_sigma, gamma1s, gamma2s,
+                            gamma3s, gamma4s):
         a1 = x[0]
         a2 = x[1]
         comp1 = np.array([])
@@ -330,30 +428,30 @@ class hom_model:
         comp4 = np.array([])
         loc, scale = self.fs[col]
         for d in ds:
-            k1 = hom_model.alfa1(a1,a2,b)
+            k1 = hom_model.alfa1(a1, a2, b)
             di = hom_model.delta(d)
-            l1 = np.log2(k1*di)
+            l1 = np.log2(k1 * di)
             comp1 = np.append(comp1, [l1])
 
-            k2 = hom_model.alfa2(a2,b)
+            k2 = hom_model.alfa2(a2, b)
             n1 = norm.pdf(d, 0, sq_sigma)
-            l2 = np.log2(k2*n1)
+            l2 = np.log2(k2 * n1)
             comp2 = np.append(comp2, [l2])
 
-            k3 = hom_model.alfa3(a1,a2,b)
-            n2 = norm.pdf(d, 0, 2*sq_sigma)
-            l3 = np.log2(k2*n1)
+            k3 = hom_model.alfa3(a1, a2, b)
+            n2 = norm.pdf(d, 0, 2 * sq_sigma)
+            l3 = np.log2(k2 * n1)
             comp3 = np.append(comp3, [l3])
 
             k4 = hom_model.alfa4(a1)
             f = norm.pdf(d, loc, scale)
-            l4 = np.log2(k4*f)
+            l4 = np.log2(k4 * f)
             comp4 = np.append(comp4, [l4])
 
-        ret = gamma1s*comp1
-        ret += gamma2s*comp2
-        ret += gamma3s*comp3
-        ret += gamma4s*comp4
+        ret = gamma1s * comp1
+        ret += gamma2s * comp2
+        ret += gamma3s * comp3
+        ret += gamma4s * comp4
         return np.sum(ret)
 
     def prob1(self, col, a1, a2, b, d, sq_sigma):
@@ -361,68 +459,125 @@ class hom_model:
         if np.isnan(d):
             return 1 - (1 - b)**2
         else:
-            k1 = hom_model.alfa1(a1,a2,b)
+            k1 = hom_model.alfa1(a1, a2, b)
             di = hom_model.delta(d)
 
-            k2 = hom_model.alfa2(a2,b)
+            k2 = hom_model.alfa2(a2, b)
             n1 = norm.pdf(d, 0, sq_sigma)
 
-            k3 = hom_model.alfa3(a1,a2,b)
-            n2 = norm.pdf(d, 0, 2*sq_sigma)
+            k3 = hom_model.alfa3(a1, a2, b)
+            n2 = norm.pdf(d, 0, 2 * sq_sigma)
 
             k4 = hom_model.alfa4(a1)
             f = norm.pdf(d, loc, scale)
 
-            return k1*di + k2*f + k3*n1 + k4*n2
+            ret = k1 * di + k2 * f + k3 * n1 + k4 * n2
+
+            return ret
 
     def prob2(self, col, b, d):
         loc, scale = self.fs[col]
         if np.isnan(d):
-            return 1 - (1-b)**2
+            return 1 - (1 - b)**2
         else:
             f = norm.pdf(d, loc, scale)
-            return (1-b)**2*f
+            return (1 - b)**2 * f
 
-    def wkj(self, j, k):
+    def wjk(self, j, k):
         ret = 0
-        (_,n) = self.test.shape
-        for i, col in zip(range(n), test):
-            if self.col_alg[i] == Algorithm.HOM:
+        (_, n) = self.data.shape
+        for i, col in zip(range(n), self.data):
+            if self.algs[i] == Algorithm.HOM:
                 ret += self.wjk_hom(j, k, col)
-            elif self.col_alg[i] == Algorithm.DEV:
+            elif self.algs[i] == Algorithm.DEV:
                 ret += self.wjk_mixt(j, k, col)
         return ret
 
     def wjk_hom(self, j, k, col):
-        x = self.test.loc[j, col]
-        y = self.test.loc[k, col]
+        x = self.data.loc[j, col]
+        y = self.data.loc[k, col]
         b = self.bs[col]
         c = self.cs[col]
-        beta = self.betas[col][j]
-        if np.isnan(x) or np.isnan(y):
+        beta = self.betas[col][x]
+
+        if self.isna.loc[j, col] or self.isna.loc[k, col]:
             return 0
-        elif np.logical_and(np.equal(x, y)):
-            return np.log2(1 - c*(1 - beta)*(1 - b)**(-2)) - np.log2(beta)
+        elif x == y:
+            return np.log2(1 - c * (1 - beta) * (1 - b)**(-2)) - np.log2(beta)
         else:
-            return np.log2(c) - 2*np.log2(1-b)
+            return np.log2(c) - 2 * np.log2(1 - b)
 
     def wjk_mixt(self, j, k, col):
         a1 = self.a1s[col]
         a2 = self.a2s[col]
         b = self.bs[col]
-        d = self.test.loc[j, col] - self.test.loc[k, col]
-        epsilon = self.epsilons[col]
+        d = abs(self.data.loc[j, col] - self.data.loc[k, col])
+        eps = self.eps[col]
         s1 = self.sq_sigmas[col]
         fd = self.fs[col]
         if np.isnan(d):
             return 0
         else:
-            fun1 = lambda x : self.prob1(col, a1, a2, b, d, s1)
-            fun1 = lambda x : self.prob2(col, b, d)
-            i1 = integrate.quad(fun1, d-epsilon, d+epsilon)
-            i2 = integrate.quad(fun2, d-epsilon, d+epsilon)
-            return np.log2(i1/i2)
+            fun1 = lambda x: self.prob1(col, a1, a2, b, x, s1)
+            fun2 = lambda x: self.prob2(col, b, x)
+            i1, e1 = integrate.quad(fun1, d - eps, d + eps)
+            i2, e2 = integrate.quad(fun2, d - eps, d + eps)
+            if i2 == 0:
+                print("Division by zero upcoming")
+                return np.PINF
+            return np.log2(i1 / i2)
 
-            
-if __name__=="__main__":
+    def calc_thres(self, train):
+        """Calculate the threshold to classify a pair as duplicate.
+
+        Args:
+            train: dataframe containing the train data
+
+        Returns:
+            A float representing the threshold
+        """
+        try:
+            train.shape
+        except AttributeError as N:
+            err_msg ="Incorrect use of function calc_thres:\n"
+            print(err_msg, self.calc_thres.__doc__)
+            return None
+        
+        groups = train.dropna()
+
+        score_dupl = []
+        for _, row in groups.iterrows():
+            j = int(row[0])  # StringToInt to get i
+            ks = [int(x)
+                  for x in row[1].split(';')]  # [StringToInt] to get [j]
+            for k in ks:
+                score = self.wjk(j, k)
+                if np.isfinite(score):
+                    score_dupl.append(score)
+        mr, sr = norm.fit(score_dupl)
+
+        (n, _) = train.shape
+        
+        samp = zip(random.sample(list(self.data.index), k=int(0.25 * n)),
+                   random.sample(list(self.data.index), k=int(0.25 * n)))
+        score_samp = []
+        for j, k in samp:
+            score = self.wjk(j, k)
+            if np.isfinite(score):
+                score_samp.append(self.wjk(j, k))
+                
+        pdb.set_trace()
+        mu, su = norm.fit(score_samp)
+
+        (n, _) = self.data.shape
+        dupl = 0.05 / n
+        self.t = hom_model.solve_bayesrule(dupl, mr, sr, mu, su)
+
+    def solve_bayesrule(dupl, mr, sr, mu, su):
+        foo = lambda x: 0.95 * (dupl * norm.pdf(x, mr, sr) + (1 - dupl) * norm.
+                                pdf(x, mu, su)) - dupl * norm.pdf(x, mr, sr)
+        return optimize.newton(foo, 0)
+
+
+if __name__ == "__main__":
     unittest.main()
