@@ -52,17 +52,9 @@ class TestMediumSizeDataFrames(unittest.TestCase):
         train = train.set_index('Issue_id').loc[data.index].reset_index()
         train = train.dropna()
 
-        print(data, "/n", train)
-
-        print(train.index[-1])
-
         max_val = int(train.loc[train.index[-1], 'Issue_id'])
         for i in train.index:
             train.loc[i,'Duplicate'] = smaller_than(train.loc[i,'Duplicate'], max_val)
-
-        print(data, "/n", train)
-
-            
         self.hom = detecting_duplicates.hom_model(data, train, [Algorithm.HOM]*4 + [Algorithm.DEV]*2, eps)
         self.hom.calc_thres(train)
 
