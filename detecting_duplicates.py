@@ -9,7 +9,6 @@ from scipy import optimize
 from scipy.stats import norm
 from scipy.spatial.distance import pdist
 import scipy.integrate as integrate
-from sympy import DiracDelta
 
 from matplotlib.pyplot import plot
 
@@ -56,7 +55,7 @@ class TestHitOrMissModule(unittest.TestCase):
         #                       ignore_index=True)
         # (m, n) = self.data.shape
         # self.blank_frequency = dict()
-        # for i, col in zip(range(n), self.data):
+        # for i, col in enumerate(self.data):
         #     for j in range(min(i, m)):
         #         self.data.loc[j, col] = np.nan
         #     self.blank_frequency[col] = i / m
@@ -96,7 +95,7 @@ class TestHitOrMissModule(unittest.TestCase):
                     4.0: 0.25}}
         self.assertEqual(model.betas, rf,
                          'incorrect relative frequency of elements')
-
+        
     # TODO: Ahora las diferencias se calculan solo sobre el test
     def test_calculate_differences(self):
         df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
@@ -190,32 +189,30 @@ class hom_model:
     def blank_freq(self):
         """Returns the blank frequencies for each column"""
         (n, _) = self.data.shape
-        ret = dict()
-        for col, x in zip(self.data.columns, self.data.count()):
-            ret[col] = 1 - x / n
-        return ret
+        calc_bf = lambda x: 1 - x / n
+        return self.data.count().apply(calc_bf).to_dict()
 
-    def cols(self, algorithm):
+    def cols(self, alg):
         """Returns the columns where a certain algorithm is executed"""
-        sel = [alg == algorithm for alg in self.algs]
-        return self.data.loc[:, sel].columns
+        it = zip(self.data.columns, self.algs)
+        return (col for col, a in it if a == alg)
 
+    def get_fs(self, col):
+        df = self.data
+        (n, _) = df.shape  # nxm -> n
+        norm = lambda x: x / n
+        # TODO: Numba Accelerated Routine
+        return df.groupby(col).size().apply(norm).to_dict()
+    
     def rel_freq(self):
         """Returns the frequency for each value inside each column"""
-        (n, _) = self.data.shape
-        ret = dict()
-        for col in self.cols(Algorithm.HOM):
-            d = dict()
-            for x in self.data.loc[:, col]:
-                if x not in d:
-                    d[x] = 1
-                else:
-                    d[x] += 1
-            for k in d:
-                d[k] /= n
-            ret[col] = d
-        return ret
+        cols = self.cols(Algorithm.HOM)
+        return {col: self.get_fs(col) for col in cols}
 
+    def get_ds(self, index_sel, col):
+        xs = self.data.loc[index_sel, col].dropna().to_numpy()
+        return pdist(xs.reshape(len(xs), 1), lambda x, y: x-y)
+    
     def norm_fits(self, train):
         """Fits a normal distribution to the differences of the elemenst in a numerical column"""
         try:
@@ -224,14 +221,10 @@ class hom_model:
             err_msg ="Incorrect use of function differences:\n"
             print(err_msg, self.differences.__doc__)
             return None
-
-        train_data = train.dropna().loc[:, 'Issue_id'].apply(int)
-        ret = dict()
-        for col in self.cols(Algorithm.DEV):
-            xs = self.data.loc[train_data, col].dropna().to_numpy()
-            ds = pdist(xs.reshape(len(xs), 1), lambda x, y: x-y)
-            ret[col] = norm.fit(ds)
-        return ret
+        
+        train_data = train.dropna().iloc[:, 0].apply(int)
+        cols = self.cols(Algorithm.DEV)
+        return {col: norm.fit(self.get_ds(train_data, col)) for col in cols}
 
     def differences(self, train):
         """Calculates pairwise element difference for each numerical column
