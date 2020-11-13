@@ -1,5 +1,3 @@
-# TODO: Probar con 10000 filas de la base de datos
-
 import detecting_duplicates
 from detecting_duplicates import Algorithm
 
@@ -10,7 +8,6 @@ import pandas as pd
 import numpy as np
 
 import unittest
-import pdb
 
 def smaller_than(s, max_val):
     vals = s.split(';')
@@ -63,8 +60,6 @@ class TestMediumSizeDataFrames(unittest.TestCase):
         score1 = self.hom.wjk(161749, 167183)
         score2 = self.hom.wjk(14871, 167183)
         biz_score = self.hom.wjk(14871, 167183)
-
-        pdb.set_trace()
         
         self.assertEqual(score1 > self.hom.t, True,
                          'Not finding real_duplicates')
