@@ -66,7 +66,7 @@ class TestMediumSizeDataFrames(unittest.TestCase):
 
         pdb.set_trace()
         
-        self.assertEqual(score1 > self.t, True,
+        self.assertEqual(score1 > self.hom.t, True,
                          'Not finding real_duplicates')
 
 if __name__ == "__main__":

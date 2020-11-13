@@ -10,7 +10,7 @@ from scipy.stats import norm
 from scipy.spatial.distance import pdist
 import scipy.integrate as integrate
 
-from matplotlib.pyplot import plot
+import matplotlib.pyplot as plt
 
 # TEST AND DEBUG
 import unittest
@@ -119,7 +119,7 @@ class TestHitOrMissModule(unittest.TestCase):
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
         model = hom_model(df, train, [Algorithm.HOM]*2, None)
-        dp = {'A': 2/3, 'B': 2/5}
+        dp = {'A': 4/3, 'B': 4/5}
         self.assertEqual(model.cs, dp,
                          'incorrect discordant pairs freq.')
         
@@ -177,14 +177,14 @@ class hom_model:
         self.eps = eps
         self.bs = self.blank_freq()
         self.betas = self.rel_freq()
-        self.fs = self.norm_fits(train)
         self.ds = self.differences(train)
+        self.fs = self.norm_fits()
         self.cs = self.dp_freq(train)
-        self.a1s, self.a2s, self.sq_sigmas1, self.sq_sigmas2 = self.calculate_frequencies()
+        self.a1s, self.a2s, self.var1s, self.var2s = self.calculate_frequencies()
         self.eps = eps
         # UN GASTO ENORME DE MEMORIA
         self.isna = self.data.isna()
-        # self.t = self.calc_thres(train)
+        self.t = self.calc_thres(train)
 
     def blank_freq(self):
         """Returns the blank frequencies for each column"""
@@ -213,19 +213,8 @@ class hom_model:
         xs = self.data.loc[index_sel, col].dropna().to_numpy()
         return pdist(xs.reshape(len(xs), 1), lambda x, y: x-y)
     
-    def norm_fits(self, train):
-        """Fits a normal distribution to the differences of the elemenst in a numerical column"""
-        try:
-            train.shape
-        except AttributeError as N:
-            err_msg ="Incorrect use of function differences:\n"
-            print(err_msg, self.differences.__doc__)
-            return None
-        
-        train_data = train.dropna().iloc[:, 0].apply(int)
-        cols = self.cols(Algorithm.DEV)
-        return {col: norm.fit(self.get_ds(train_data, col)) for col in cols}
 
+    # Utilizar el resultado de esta funcion en norm_fits
     def differences(self, train):
         """Calculates pairwise element difference for each numerical column
 
@@ -242,15 +231,17 @@ class hom_model:
             print(err_msg, self.differences.__doc__)
             return None
 
-        ret = dict()
-        vals = train.dropna().iloc[:, 0].apply(int)
-        df = self.data.loc[vals]
-        for col in self.cols(Algorithm.DEV):
-            xs = df.loc[:, col].dropna().to_numpy()
-            xs = xs.reshape(len(df), 1)
-            ret[col] = pdist(xs, lambda x, y: x - y)
-        return ret
+        train_data = train.dropna().iloc[:, 0].apply(int)
+        cols = self.cols(Algorithm.DEV)
+        return {col: self.get_ds(train_data, col) for col in cols}
 
+    def norm_fits(self):
+        """Fits a normal distribution to the differences of the elemenst in a numerical column"""
+        if self.ds:
+            return {k: norm.fit(self.ds[k]) for k in self.ds}
+        return None
+
+    # TODO: menos lineas de codigo
     def dp_freq(self, train):
         """Calculates the frequency of discordant pairs for each column in the identified duplicates
         
@@ -277,18 +268,18 @@ class hom_model:
             js = [int(x)
                   for x in row[1].split(';')]  # [StringToInt] to get [j]
             for j in js:
-                for col in cols:
+                for col in self.cols(Algorithm.HOM):
                     if self.data.loc[i, col] != self.data.loc[j, col]:
                         # Notice that every discordant pair DP is
                         # added twice. First when chosen by (i,j)
                         # and second when chosen by (j,i)
                         ret[col] += 1  # Adds a new discordant pair
-        for col in cols:
+        for col in self.cols(Algorithm.HOM):
             s = 0
             for key in self.betas[col]:
                 s += (self.betas[col][key])**2
             # The two is due to the fact that DPs are added twice
-            ret[col] /= 2 * n * (1 - s)
+            ret[col] /= n * (1 - s)
         return ret
 
     # def calc_as(self):
@@ -315,14 +306,10 @@ class hom_model:
 
     def calculate_frequencies(self):
         """Calculate estimates for HOM DEV algorithm"""
-        a1s, a2s, sq_sigma1s, sq_sigma2s = dict(), dict(), dict(), dict()
-        for col in self.cols(Algorithm.DEV):
-            a1, a2, sq_sigma1, sq_sigma2 = self.hom_mix_fitting(col)
-            a1s[col] = a1
-            a2s[col] = a2
-            sq_sigma1s[col] = sq_sigma1
-            sq_sigma2s[col] = sq_sigma2
-        return a1s, a2s, sq_sigma1s, sq_sigma2s
+        a1s, a2s, s1s, s2s = dict(), dict(), dict(), dict()
+        for c in self.cols(Algorithm.DEV):
+            a1s[c], a2s[c], s1s[c], s2s[c] = self.hom_mix_fitting(c)
+        return a1s, a2s, s1s, s2s
 
     def hom_mix_fitting(self, col):
         """Computes the a1, a2 and variance for a column of the dataset
@@ -334,30 +321,32 @@ class hom_model:
         Returns:
             A triple with the EM algorithm output for a1, a2 and variance
         """
-        ds = self.ds[col]
-        sq_sigma2 = np.var(ds)
-        sq_sigma1 = 0.001*sq_sigma2
+        def shake_val(x):
+            """Auxiliary function to escape a cycle"""
+            return x + 100 * random.random()
+        # First estimation of sigmas MAYBE: sq_sigma -> var
+        var2 = np.var(self.ds[col])
+        var1 = 0.001*var2
+
+        # Initial probability guess
         b = self.bs[col]
         a1 = (1-b)*random.random()
         a2 = (1 - b - a1)*random.random()
-        aux1, aux2, aux3, aux4 = 0, 0, 0, 0
+
+        d = np.linalg.norm([a1, a2, var1, var2])
         eps = 0.001
-        v = [a1 - aux1, a2 - aux2, sq_sigma1 - aux3, sq_sigma2 - aux4]
-        d0 = np.linalg.norm(v)
-        d1 = d0
-        while d1 > eps:
-            print(np.linalg.norm(v))
-            aux1, aux2, aux3, aux4 = a1, a2, sq_sigma1, sq_sigma2
-            a1, a2, sq_sigma1, sq_sigma2 = self.hom_mix_fitting_loop(col, a1, a2, sq_sigma1, sq_sigma2)
-            v = [a1 - aux1, a2 - aux2, sq_sigma1 - aux3, sq_sigma2 - aux4]
-            d0, d1 = d1, np.linalg.norm(v)
-            if d0 == d1:
-                coord = lambda x: 100 * x - 50
-                a1 += coord(np.random.random())
-                a2 += coord(np.random.random())
-                sq_sigma1 += coord(np.random.random())
-                sq_sigma2 += coord(np.random.random())
-        return a1, a2, sq_sigma1, sq_sigma2
+        while d > eps:
+            print(np.linalg.norm([a1,a2,var1,var2]))
+            a1_, a2_, var1_, var2_ = a1, a2, var1, var2
+            a1, a2, var1, var2 = self.hom_mix_fitting_loop(col, a1, a2, var1, var2)
+            v = [a1 - a1_, a2 - a2_, var1 - var1_, var2 - var2_]
+            d_, d = d, np.linalg.norm(v)
+            if d_ == d:
+                a1 = shake_val(a1)
+                a2 = shake_val(a2)
+                var1 = shake_val(var1)
+                var2 = shake_val(var2)
+        return a1, a2, var1, var2
 
     def hom_mix_fitting_loop(self, col, a1, a2, sq_sigma1, sq_sigma2):
         b = self.bs[col]
@@ -428,11 +417,11 @@ class hom_model:
     def update_as(self, col, a1, a2, b, ds, sq_sigma1, sq_sigma2, gamma1s, gamma2s,
                   gamma3s, gamma4s):
         x0 = [a1, a2]
-        cons = ({'type': 'ineq', 'fun': lambda x: x[0] + x[1] < 1 - b})
+        cons = ({'type': 'ineq', 'fun': lambda x: 1 - b - x[0] - x[1]})
         bnds = ((0, 1), (0, 1))
         fun = lambda x: -self.expected_likelihood(
             col, x, b, ds, sq_sigma1, sq_sigma2, gamma1s, gamma2s, gamma3s, gamma4s)
-        res = optimize.minimize(fun, x0, bounds=bnds, constraints=cons)
+        res = optimize.minimize(fun, x0, method='SLSQP', bounds=bnds, constraints=cons)
         print("The expected likelihood is: ", -fun(res.x))
         return res.x[0], res.x[1]
 
@@ -539,8 +528,8 @@ class hom_model:
         b = self.bs[col]
         d = self.data.loc[j, col] - self.data.loc[k, col]
         eps = self.eps[col]
-        s1 = self.sq_sigma1s[col]
-        s2 = self.sq_sigma2s[col]
+        s1 = self.var1s[col]
+        s2 = self.var2s[col]
         fd = self.fs[col]
         if np.isnan(d):
             return 0
@@ -595,17 +584,19 @@ class hom_model:
                 
         mu, su = norm.fit(score_samp)
 
-        (n, _) = self.data.shape
-        dupl = 0.05
+        dupl = 0.005
         self.t = hom_model.solve_bayesrule(dupl, mr, sr, mu, su)
 
     def solve_bayesrule(dupl, mr, sr, mu, su):
         warr = 0.95
         foo = lambda x: warr * (dupl * norm.pdf(x, mr, sr) + (1 - dupl) * norm.
                                 pdf(x, mu, su)) - dupl * norm.pdf(x, mr, sr)
-        plot(np.linspace(-50, 50),
+        plt.plot(np.linspace(-50, 50),
              [foo(x) for x in np.linspace(-50,50)])
-        return optimize.newton(foo, 0)
+        pdb.set_trace()
+        plt.show()
+        # optunity
+        return optimize.newton(foo, 0.001)
 
 
 if __name__ == "__main__":
