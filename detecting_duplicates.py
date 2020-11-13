@@ -19,7 +19,7 @@ import pdb
 import warnings
 
 def expand_grid(data_dict):
-    """Builds a pandas dataframe with some values
+    """Builds a pandas dataframe by building the cartesian product of some values
 
     Args:
         data_dict: A dictionary with keys and values
@@ -35,38 +35,6 @@ def expand_grid(data_dict):
 
 class TestHitOrMissModule(unittest.TestCase):
     
-    # def setUp(self):
-        # df1 = pd.DataFrame(np.random.randint(100, size=(3 * 64, 1)),
-        #                    columns=['mg ingeridos'])
-        # # TODO: Como automatizar que todos los datos de DEV sean numericos???
-        # df2 = pd.DataFrame(pd.to_numeric(
-        #     pd.date_range('2018-01-01', periods=3 * 64, freq='10 Min')),
-        #                    columns=['horas'])
-        # df3 = expand_grid({
-        #     'edad': [15, 20, 25],
-        #     'peso': [75, 80, 85, 90],
-        #     'genero': ['Masculino', 'Femenino', 'Neutro', 'Fluido'],
-        #     'nombre': ['Mario', 'Lola', 'Antonio', 'Pedro']
-        # })
-        # epsilon = {'mg ingeridos': 30, 'horas': 100, 'edad': 1, 'peso': 5}
-        # self.data = pd.concat([df1, df2, df3], axis=1)
-        # self.data = pd.concat([self.data, self.data],
-        #                       axis=0,
-        #                       ignore_index=True)
-        # (m, n) = self.data.shape
-        # self.blank_frequency = dict()
-        # for i, col in enumerate(self.data):
-        #     for j in range(min(i, m)):
-        #         self.data.loc[j, col] = np.nan
-        #     self.blank_frequency[col] = i / m
-
-        # self.train = pd.DataFrame(np.array(
-        #     [[str(x), str(int((x + m / 2) % m))] for x in range(m)]),
-        #                           columns=["Issue_Id", "Duplicate"])
-
-        # alg_selection = [Algorithm.DEV] * 4 + [Algorithm.HOM] * 2
-        # self.model = hom_model(self.data, self.train, alg_selection, epsilon)
-
     def test_blank_frequencies(self):
         df = pd.DataFrame({'A': [np.nan, 1.0, 1.0, 1.0],
                            'B': [np.nan, np.nan, 1.0, 1.0],
@@ -96,7 +64,6 @@ class TestHitOrMissModule(unittest.TestCase):
         self.assertEqual(model.betas, rf,
                          'incorrect relative frequency of elements')
         
-    # TODO: Ahora las diferencias se calculan solo sobre el test
     def test_calculate_differences(self):
         df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
                            'B': [5.0, 5.0, 6.0, 7.0]})
@@ -122,24 +89,9 @@ class TestHitOrMissModule(unittest.TestCase):
         dp = {'A': 4/3, 'B': 4/5}
         self.assertEqual(model.cs, dp,
                          'incorrect discordant pairs freq.')
-        
-        
-        
-    # Se puede tener un valor None dentro de un dataframe
-    # def test_nan_analog_for_strings(self):
 
-    # def test_normal_fits(self ):
-    #     d = dict()
-    #     sel = [alg == Algorithm.DEV for alg in self.model.algs]
-    #     for col in self.data.loc[:,sel]:
-    #         B = self.data.loc[:,col].to_numpy()
-    #         withouans = B[np.logical_not(np.isnan(B))]
-    #         d[col] = norm.fit(withoutnans)
-    #     self.assertEqual(d, self.model.fs)
-
-    # def test_frequency_every_element_appears(self):
-
-
+    # TODO: Resto de tests
+    
 class Algorithm(Enum):
     HOM = auto()
     DEV = auto()
@@ -182,8 +134,6 @@ class hom_model:
         self.cs = self.dp_freq(train)
         self.a1s, self.a2s, self.var1s, self.var2s = self.calculate_frequencies()
         self.eps = eps
-        # UN GASTO ENORME DE MEMORIA
-        self.isna = self.data.isna()
         self.t = self.calc_thres(train)
 
     def blank_freq(self):
@@ -515,7 +465,7 @@ class hom_model:
         c = self.cs[col]
         beta = self.betas[col][x]
 
-        if self.isna.loc[j, col] or self.isna.loc[k, col]:
+        if pd.isna(x) or pd.isna(y):
             return 0
         elif x == y:
             return np.log2(1 - c * (1 - beta) * (1 - b)**(-2)) - np.log2(beta)
@@ -596,8 +546,12 @@ class hom_model:
         pdb.set_trace()
         plt.show()
         # optunity
-        return optimize.newton(foo, 0.001)
-
+        while True:
+            try:
+                x0 = random.random()
+                return optimize.newton(foo, x0)
+            except:
+                x0 = random.random()
 
 if __name__ == "__main__":
     unittest.main()
