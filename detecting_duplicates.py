@@ -11,9 +11,12 @@ import scipy.integrate as integrate
 
 import json
 
-# TEST AND DEBUG
+# Test
 import unittest
 import random
+
+# DEBUG
+import pdb
 
 def expand_grid(data_dict):
     """Builds a pandas dataframe by building the cartesian product of some values
@@ -92,8 +95,62 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [5.0, 5.0, 6.0, 7.0]})
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
-        model = hom_model(df, train, [Algorithm.DEV]*2, None)
-        print(json.dump(model.bs))        
+        model = hom_model(df, train, [Algorithm.HOM]*2, None)
+
+        path = './tests/test_saving_coeffs.json'
+        model.save_coefficients(path)
+
+        with open(path, 'r') as f:
+            s = f.read().strip('\n')
+            
+        synth = json.dumps({"bs": model.bs,
+                            "betas": model.betas,
+                            "ds": {k: v.tolist() for k,v in model.ds},
+                            "fs": model.fs,
+                            "cs": model.cs, 
+                            "a1s": model.a1s,
+                            "a2s": model.a2s,
+                            "var1s": model.var1s,
+                            "var2s": model.var2s,
+                            "eps": model.eps})
+        
+        self.assertEqual(s, synth,
+                         'Incorrect save of coefficients')
+
+    def test_initialize_from_file(self):
+        df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
+                           'B': [5.0, 5.0, 6.0, 7.0]})
+        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+                              'Duplicate': ["1", "0", "3", "2"]})
+        model = hom_model(df, train, [Algorithm.HOM]*2, None)
+
+        path = './tests/test_saving_coeffs.json'
+        model.save_coefficients(path)
+
+        model_file = hom_model(path=path)
+
+        values = [model.bs,
+                  model.betas,
+                  model.fs,
+                  model.cs,
+                  model.a1s,
+                  model.a2s,
+                  model.var1s,
+                  model.var2s,
+                  model.eps]
+
+        values_file = [model_file.bs,
+                       model_file.betas,
+                       model_file.fs,
+                       model_file.cs,
+                       model_file.a1s,
+                       model_file.a2s,
+                       model_file.var1s,
+                       model_file.var2s,
+                       model_file.eps]
+
+        self.assertEqual(values, values_file,
+                         'Incorrect save of coefficients')
         
     # TODO: Resto de tests
     
@@ -117,7 +174,7 @@ class hom_model:
        a2s: EM estimates of parameter a2 for each DEV column       
        sq_sigmas: EM estimates of parameter sq_sigma for each DEV column       
     """
-    def __init__(self, data, train, algs, eps):
+    def __init__(self, *args, **kwargs):
         """Initialize hit or miss probabilistic model
         
         Args:
@@ -129,6 +186,16 @@ class hom_model:
         Returns:
             A hom model for estimating how similar two rows of the data are
         """
+        if 'path' in kwargs:
+            self.file_constructor(kwargs['path'])
+        else:
+            data = args[0]
+            train = args[1]
+            algs = args[2]
+            eps = args[3]
+            self.data_constructor(data, train, algs, eps)
+        
+    def data_constructor(self, data, train, algs, eps):
         self.data = data
         self.algs = algs
         self.eps = eps
@@ -139,6 +206,20 @@ class hom_model:
         self.cs = self.dp_freq(train)
         self.a1s, self.a2s, self.var1s, self.var2s = self.calculate_frequencies()
         self.eps = eps
+
+    def file_constructor(self,path):
+        with open(path, 'r') as f:
+            params = json.loads(f.read().strip('\n'))
+        self.bs = params["bs"]
+        self.betas = {k: {float(kk):vv for kk, vv in v.items()} for k,v in params["betas"].items()}
+        self.ds = params["ds"]
+        self.fs = params["fs"]
+        self.cs = params["cs"]
+        self.a1s = params["a1s"]
+        self.a2s = params["a2s"]
+        self.var1s = params["var1s"]
+        self.var2s = params["var2s"]
+        self.eps = params["eps"]
 
     def blank_freq(self):
         """Returns the blank frequencies for each column"""
@@ -563,7 +644,20 @@ class hom_model:
                 x0 = random.random()
 
     def save_coefficients(self, path):
-        print(json.dump(self.bs))
+        ds = {k: v.tolist() for k,v in self.ds.items()}
+        values = {"bs": self.bs,
+                  "betas": self.betas,
+                  "ds": ds,
+                  "fs": self.fs,
+                  "cs": self.cs,
+                  "a1s": self.a1s,
+                  "a2s": self.a2s,
+                  "var1s": self.var1s,
+                  "var2s": self.var2s,
+                  "eps": self.eps}
+        st = json.dumps(values)
+        with open(path, 'w') as f:
+            print(st, file=f)
 
 if __name__ == "__main__":
     unittest.main()
