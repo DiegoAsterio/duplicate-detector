@@ -1,4 +1,3 @@
-# TODO: De verdad hace falta un enumerable para un valor Booleano?
 from enum import Enum, auto
 
 import itertools
@@ -10,13 +9,11 @@ from scipy.stats import norm
 from scipy.spatial.distance import pdist
 import scipy.integrate as integrate
 
-import matplotlib.pyplot as plt
+import json
 
 # TEST AND DEBUG
 import unittest
 import random
-import pdb
-import warnings
 
 def expand_grid(data_dict):
     """Builds a pandas dataframe by building the cartesian product of some values
@@ -90,6 +87,14 @@ class TestHitOrMissModule(unittest.TestCase):
         self.assertEqual(model.cs, dp,
                          'incorrect discordant pairs freq.')
 
+    def test_saving_coefficients(self):
+        df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
+                           'B': [5.0, 5.0, 6.0, 7.0]})
+        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+                              'Duplicate': ["1", "0", "3", "2"]})
+        model = hom_model(df, train, [Algorithm.DEV]*2, None)
+        print(json.dump(model.bs))        
+        
     # TODO: Resto de tests
     
 class Algorithm(Enum):
@@ -134,7 +139,6 @@ class hom_model:
         self.cs = self.dp_freq(train)
         self.a1s, self.a2s, self.var1s, self.var2s = self.calculate_frequencies()
         self.eps = eps
-        self.t = self.calc_thres(train)
 
     def blank_freq(self):
         """Returns the blank frequencies for each column"""
@@ -268,7 +272,6 @@ class hom_model:
         d = np.linalg.norm([a1, a2, var1, var2])
         eps = 0.001
         while d > eps:
-            print(np.linalg.norm([a1,a2,var1,var2]))
             a1_, a2_, var1_, var2_ = a1, a2, var1, var2
             a1, a2, var1, var2 = self.hom_mix_fitting_loop(col, a1, a2, var1, var2)
             v = [a1 - a1_, a2 - a2_, var1 - var1_, var2 - var2_]
@@ -280,7 +283,8 @@ class hom_model:
                 var2 = shake_val(var2)
         return a1, a2, var1, var2
 
-    def hom_mix_fitting_loop(self, col, a1, a2, sq_sigma1, sq_sigma2):
+    def hom_mix_fitting_loop(self, col, a1, a2, var1, sq_sigma2):
+        """Calculate constants a1, a2, var1, var2 by means of an EM algorithm"""
         b = self.bs[col]
         ds = self.ds[col]
 
@@ -291,7 +295,7 @@ class hom_model:
 
         for d in ds:
             gamma1, gamma2, gamma3, gamma4 = self.gammas(
-                col, d, a1, a2, b, sq_sigma1, sq_sigma2)
+                col, d, a1, a2, b, var1, sq_sigma2)
             gamma1s = np.append(gamma1s, [gamma1])
             gamma2s = np.append(gamma2s, [gamma2])
             gamma3s = np.append(gamma3s, [gamma3])
@@ -299,43 +303,48 @@ class hom_model:
 
         num1 = np.sum(gamma1s * ds**2)
         den1 = np.sum(gamma1s)
-        sq_sigma1 = num1 / den1
+        var1 = num1 / den1
 
         num2 = np.sum((gamma3s + gamma4s * 0.5) * ds**2)
         den2 = np.sum(gamma3s + gamma4s)
         sq_sigma2 = num2 / den2
 
-        a1, a2 = self.update_as(col, a1, a2, b, ds, sq_sigma1, sq_sigma2, gamma1s, gamma2s,
+        a1, a2 = self.update_as(col, a1, a2, b, ds, var1, sq_sigma2, gamma1s, gamma2s,
                                 gamma3s, gamma4s)
 
-        return a1, a2, sq_sigma1, sq_sigma2
+        return a1, a2, var1, sq_sigma2
 
     def alfa1(a1, a2, b):
+        """Probability of the first distribution in the mixture model"""
         return (1 - a1 - a2 - b)**2
 
     def alfa2(a2, b):
+        """Probability of the second distribution in the mixture model"""
         return a2 * (2 - 2 * b - a2)
 
     def alfa3(a1, a2, b):
+        """Probability of the third distribution in the mixture model"""
         return 2 * a1 * (1 - a1 - a2 - b)
 
     def alfa4(a1):
+        """Probability of the second distribution in the mixture model"""
         return a1**2
 
-    def gammas(self, col, di, a1, a2, b, sq_sigma1, sq_sigma2):
+    def gammas(self, col, di, a1, a2, b, var1, var2):
+        """Calculates responsability for a specific difference within the EM algorithm"""
         alfa1 = hom_model.alfa1(a1, a2, b)
         alfa2 = hom_model.alfa2(a2, b)
         alfa3 = hom_model.alfa3(a1, a2, b)
         alfa4 = hom_model.alfa4(a1)
 
-        norm1 = norm.pdf(di, 0, sq_sigma1)
+        norm1 = norm.pdf(di, 0, var1)
 
         loc, scale = self.fs[col]
         f = norm.pdf(di, loc, scale)
 
-        norm2 = norm.pdf(di, 0, sq_sigma2)
+        norm2 = norm.pdf(di, 0, var2)
 
-        norm3 = norm.pdf(di, 0, 2 * sq_sigma2)
+        norm3 = norm.pdf(di, 0, 2 * var2)
 
         gamma1 = alfa1 * norm1
         gamma2 = alfa2 * f
@@ -346,19 +355,21 @@ class hom_model:
 
         return gamma1 / den, gamma2 / den, gamma3 / den, gamma4 / den
 
-    def update_as(self, col, a1, a2, b, ds, sq_sigma1, sq_sigma2, gamma1s, gamma2s,
+    def update_as(self, col, a1, a2, b, ds, var1, var2, gamma1s, gamma2s,
                   gamma3s, gamma4s):
+        """Updates probabilities a1 and a2 by maximizing the expected likelihood"""
         x0 = [a1, a2]
         cons = ({'type': 'ineq', 'fun': lambda x: 1 - b - x[0] - x[1]})
         bnds = ((0, 1), (0, 1))
         fun = lambda x: -self.expected_likelihood(
-            col, x, b, ds, sq_sigma1, sq_sigma2, gamma1s, gamma2s, gamma3s, gamma4s)
+            col, x, b, ds, var1, var2, gamma1s, gamma2s, gamma3s, gamma4s)
         res = optimize.minimize(fun, x0, method='SLSQP', bounds=bnds, constraints=cons)
         print("The expected likelihood is: ", -fun(res.x))
         return res.x[0], res.x[1]
 
-    def expected_likelihood(self, col, x, b, ds, sq_sigma1, sq_sigma2, gamma1s, gamma2s,
+    def expected_likelihood(self, col, x, b, ds, var1, var2, gamma1s, gamma2s,
                             gamma3s, gamma4s):
+        """Returns expected likelihood for our mixture model"""
         a1 = x[0]
         a2 = x[1]
         comp1 = np.array([])
@@ -376,15 +387,15 @@ class hom_model:
         k3 = hom_model.alfa3(a1, a2, b)
         k4 = hom_model.alfa4(a1)
         for d in ds:
-            di = norm.pdf(d, 0, sq_sigma1)
+            di = norm.pdf(d, 0, var1)
             l1 = np.log2(k1 * di)
             comp1 = np.append(comp1, [l1])
 
-            n1 = norm.pdf(d, 0, sq_sigma2)
+            n1 = norm.pdf(d, 0, var2)
             l2 = np.log2(k2 * n1)
             comp2 = np.append(comp2, [l2])
 
-            n2 = norm.pdf(d, 0, 2 * sq_sigma2)
+            n2 = norm.pdf(d, 0, 2 * var2)
             l3 = np.log2(k3 * n2)
             comp3 = np.append(comp3, [l3])
 
@@ -402,19 +413,20 @@ class hom_model:
         ret += gamma4s * comp4
         return np.sum(ret)
 
-    def prob1(self, col, a1, a2, b, d, sq_sigma1, sq_sigma2):
+    def prob1(self, col, a1, a2, b, d, var1, var2):
+        """Probability of a difference occuring withing a column with a HOM model"""
         loc, scale = self.fs[col]
         if np.isnan(d):
             return 1 - (1 - b)**2
         else:
             k1 = hom_model.alfa1(a1, a2, b)
-            di = norm.pdf(d, 0, sq_sigma1)
+            di = norm.pdf(d, 0, var1)
 
             k2 = hom_model.alfa2(a2, b)
-            n1 = norm.pdf(d, 0, sq_sigma2)
+            n1 = norm.pdf(d, 0, var2)
 
             k3 = hom_model.alfa3(a1, a2, b)
-            n2 = norm.pdf(d, 0, 2 * sq_sigma2)
+            n2 = norm.pdf(d, 0, 2 * var2)
 
             k4 = hom_model.alfa4(a1)
             f = norm.pdf(d, loc, scale)
@@ -424,6 +436,7 @@ class hom_model:
             return ret
 
     def prob2(self, col, b, d):
+        """Probability of a difference occuring withing a column with a deviated HOM model"""
         loc, scale = self.fs[col]
         if np.isnan(d):
             return 1 - (1 - b)**2
@@ -432,6 +445,15 @@ class hom_model:
             return (1 - b)**2 * f
 
     def wjk(self, j, k):
+        """Calculates log likelihood ratio for two rows j and k   
+
+        j: index of the first row
+        k: index of the second row
+
+
+        returns a log likelihood ratio the bigger the ratio the 
+        more likely it is for two rows to be equal
+        """
         ret = 0
         (_, n) = self.data.shape
         for col in self.cols(Algorithm.HOM):
@@ -441,6 +463,9 @@ class hom_model:
         return ret
 
     def wjk_hom(self, j, k, col):
+        """Calculates log likelihood ratio for two rows j 
+        and k in a HOM column
+        """
         x = self.data.loc[j, col]
         y = self.data.loc[k, col]
         b = self.bs[col]
@@ -455,6 +480,9 @@ class hom_model:
             return np.log2(c) - 2 * np.log2(1 - b)
 
     def wjk_mixt(self, j, k, col):
+        """Calculates log likelihood ratio for two rows j and k
+        in a deviated HOM column
+        """
         a1 = self.a1s[col]
         a2 = self.a2s[col]
         b = self.bs[col]
@@ -520,20 +548,22 @@ class hom_model:
         self.t = hom_model.solve_bayesrule(dupl, mr, sr, mu, su)
 
     def solve_bayesrule(dupl, mr, sr, mu, su):
+        """Returns the score that gives at least 0.95 probability 
+        of two rows being duplicates considered that score
+        """
         warr = 0.95
         foo = lambda x: warr * (dupl * norm.pdf(x, mr, sr) + (1 - dupl) * norm.
                                 pdf(x, mu, su)) - dupl * norm.pdf(x, mr, sr)
-        plt.plot(np.linspace(-50, 50),
-             [foo(x) for x in np.linspace(-50,50)])
-        pdb.set_trace()
-        plt.show()
-        # optunity
+        # TODO: search for optunity function to find zeros
         while True:
             try:
                 x0 = random.random()
                 return optimize.newton(foo, x0)
             except:
                 x0 = random.random()
+
+    def save_coefficients(self, path):
+        print(json.dump(self.bs))
 
 if __name__ == "__main__":
     unittest.main()
