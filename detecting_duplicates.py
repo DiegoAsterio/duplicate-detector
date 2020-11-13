@@ -160,6 +160,10 @@ class hom_model:
         return {col: self.get_fs(col) for col in cols}
 
     def get_ds(self, index_sel, col):
+        """Calculates elementwise differences for a specific column 
+        of a subselection of the data. This subselection is indexed by
+        a list of indexes.
+        """
         xs = self.data.loc[index_sel, col].dropna().to_numpy()
         return pdist(xs.reshape(len(xs), 1), lambda x, y: x-y)
     
@@ -186,7 +190,7 @@ class hom_model:
         return {col: self.get_ds(train_data, col) for col in cols}
 
     def norm_fits(self):
-        """Fits a normal distribution to the differences of the elemenst in a numerical column"""
+        """Fits a normal distribution to the differences of the elements in a numerical column"""
         if self.ds:
             return {k: norm.fit(self.ds[k]) for k in self.ds}
         return None
@@ -231,28 +235,6 @@ class hom_model:
             # The two is due to the fact that DPs are added twice
             ret[col] /= n * (1 - s)
         return ret
-
-    # def calc_as(self):
-    #     """Calculate probability of miss for each column"""
-    #     ret = dict()
-    #     for col in self.cols(Algorithm.HOM):
-    #         b = self.bs[col]
-    #         c = self.cs[col]
-    #         # SOLVE X^2 + 2(b-1)X + c = 0 with 0 <= X <= 1
-    #         a = self.get_correct_root(b, c)
-    #         ret[col] = a
-    #     return ret
-
-    # def get_correct_root(b, c):
-    #     """Gives a solution for X^2 + 2(b-1)X + c = 0 with 0 <= X <= 1"""
-    #     root1 = (-2 * (b - 1) + np.sqrt((-2 * (b - 1))**2 - 4 * c)) / 2
-    #     root2 = (-2 * (b - 1) - np.sqrt((-2 * (b - 1))**2 - 4 * c)) / 2
-    #     if 0 <= root1 <= 1:
-    #         return root1
-    #     elif 0 <= root2 <= 1:
-    #         return root2
-    #     else:
-    #         raise Exception("Invalid probability")
 
     def calculate_frequencies(self):
         """Calculate estimates for HOM DEV algorithm"""
