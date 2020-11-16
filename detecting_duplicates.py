@@ -1,5 +1,3 @@
-from enum import Enum, auto
-
 import itertools
 
 import pandas as pd
@@ -40,7 +38,7 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [np.nan, np.nan, 1.0, 1.0],
                            'C': [np.nan, np.nan, np.nan, 1.0],
                            'D': [np.nan, np.nan, np.nan, np.nan]})
-        model = hom_model(df, None, [Algorithm.HOM]*4, None)
+        model = hom_model(df, None, [True]*4, None)
         bf = {'A': 0.25, 'B': 0.5, 'C': 0.75, 'D': 1.0}
         self.assertEqual(model.bs, bf,
                          'incorrect frequency of blank elements')
@@ -50,7 +48,7 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [1.0, 1.0, 2.0, 2.0],
                            'C': [1.0, 2.0, 2.0, 3.0],
                            'D': [1.0, 2.0, 3.0, 4.0]})
-        model = hom_model(df, None, [Algorithm.HOM]*4, None)
+        model = hom_model(df, None, [True]*4, None)
         rf = {'A': {1.0: 1.0},
               'B': {1.0: 0.5,
                     2.0: 0.5},
@@ -69,7 +67,7 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [5.0, 5.0, 6.0, 7.0]})
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
-        model = hom_model(df, train, [Algorithm.DEV]*2, None)
+        model = hom_model(df, train, [False]*2, None)
         model_ds = dict()
         for k in model.ds:
             model_ds[k] = list(model.ds[k])
@@ -85,7 +83,7 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [5.0, 5.0, 6.0, 7.0]})
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
-        model = hom_model(df, train, [Algorithm.HOM]*2, None)
+        model = hom_model(df, train, [True]*2, None)
         dp = {'A': 4/3, 'B': 4/5}
         self.assertEqual(model.cs, dp,
                          'incorrect discordant pairs freq.')
@@ -95,7 +93,7 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [5.0, 5.0, 6.0, 7.0]})
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
-        model = hom_model(df, train, [Algorithm.HOM]*2, None)
+        model = hom_model(df, train, [True]*2, None)
 
         path = './tests/test_saving_coeffs.json'
         model.save_coefficients(path)
@@ -122,7 +120,7 @@ class TestHitOrMissModule(unittest.TestCase):
                            'B': [5.0, 5.0, 6.0, 7.0]})
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
-        model = hom_model(df, train, [Algorithm.HOM]*2, None)
+        model = hom_model(df, train, [True]*2, None)
 
         path = './tests/test_saving_coeffs.json'
         model.save_coefficients(path)
@@ -154,11 +152,6 @@ class TestHitOrMissModule(unittest.TestCase):
         
     # TODO: Resto de tests
     
-class Algorithm(Enum):
-    HOM = auto()
-    DEV = auto()
-
-
 class hom_model:
     """Hit or miss model to estimate how similar two rows in a database are
 
@@ -241,7 +234,7 @@ class hom_model:
     
     def rel_freq(self):
         """Returns the frequency for each value inside each column"""
-        cols = self.cols(Algorithm.HOM)
+        cols = self.cols(True)
         return {col: self.get_fs(col) for col in cols}
 
     def get_ds(self, index_sel, col):
@@ -271,7 +264,7 @@ class hom_model:
             return None
 
         train_data = train.dropna().iloc[:, 0].apply(int)
-        cols = self.cols(Algorithm.DEV)
+        cols = self.cols(False)
         return {col: self.get_ds(train_data, col) for col in cols}
 
     def norm_fits(self):
@@ -300,20 +293,20 @@ class hom_model:
         groups = train.dropna()  # Drop rows with invalid values
         (n, _) = groups.shape
 
-        cols = self.cols(Algorithm.HOM)
+        cols = self.cols(True)
         ret = {col: 0 for col in cols}
         for _, row in groups.iterrows():
             i = int(row[0])  # StringToInt to get i
             js = [int(x)
                   for x in row[1].split(';')]  # [StringToInt] to get [j]
             for j in js:
-                for col in self.cols(Algorithm.HOM):
+                for col in self.cols(True):
                     if self.data.loc[i, col] != self.data.loc[j, col]:
                         # Notice that every discordant pair DP is
                         # added twice. First when chosen by (i,j)
                         # and second when chosen by (j,i)
                         ret[col] += 1  # Adds a new discordant pair
-        for col in self.cols(Algorithm.HOM):
+        for col in self.cols(True):
             s = 0
             for key in self.betas[col]:
                 s += (self.betas[col][key])**2
@@ -324,7 +317,7 @@ class hom_model:
     def calculate_frequencies(self):
         """Calculate estimates for HOM DEV algorithm"""
         a1s, a2s, s1s, s2s = dict(), dict(), dict(), dict()
-        for c in self.cols(Algorithm.DEV):
+        for c in self.cols(False):
             a1s[c], a2s[c], s1s[c], s2s[c] = self.hom_mix_fitting(c)
         return a1s, a2s, s1s, s2s
 
@@ -537,9 +530,9 @@ class hom_model:
         """
         ret = 0
         (_, n) = self.data.shape
-        for col in self.cols(Algorithm.HOM):
+        for col in self.cols(True):
             ret += self.wjk_hom(j, k, col)
-        for col in self.cols(Algorithm.DEV):
+        for col in self.cols(False):
             ret += self.wjk_mixt(j, k, col)
         return ret
 
@@ -657,7 +650,7 @@ class hom_model:
                   "eps": self.eps}
         st = json.dumps(values)
         with open(path, 'w') as f:
-            print(st, file=f)
+            f.write(st)
 
 if __name__ == "__main__":
     unittest.main()
