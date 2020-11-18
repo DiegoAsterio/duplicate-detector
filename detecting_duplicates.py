@@ -230,6 +230,7 @@ class hom_model:
         (n, _) = df.shape  # nxm -> n
         norm = lambda x: x / n
         # TODO: Numba Accelerated Routine
+        pdb.set_trace()
         return df.groupby(col).size().apply(norm).to_dict()
     
     def rel_freq(self):
@@ -260,7 +261,7 @@ class hom_model:
             train.shape
         except AttributeError as N:
             err_msg ="Incorrect use of function differences:\n"
-            print(err_msg, self.differences.__doc__)
+            print err_msg + self.differences.__doc__
             return None
 
         train_data = train.dropna().iloc[:, 0].apply(int)
@@ -287,7 +288,7 @@ class hom_model:
             train.shape
         except AttributeError as N:
             err_msg ="Incorrect use of function dp_freq:\n"
-            print(err_msg, self.dp_freq.__doc__)
+            print err_msg + self.dp_freq.__doc__
             return None
 
         groups = train.dropna()  # Drop rows with invalid values
@@ -438,7 +439,7 @@ class hom_model:
         fun = lambda x: -self.expected_likelihood(
             col, x, b, ds, var1, var2, gamma1s, gamma2s, gamma3s, gamma4s)
         res = optimize.minimize(fun, x0, method='SLSQP', bounds=bnds, constraints=cons)
-        print("The expected likelihood is: ", -fun(res.x))
+        print "The expected likelihood is: {}".format(-fun(res.x))
         return res.x[0], res.x[1]
 
     def expected_likelihood(self, col, x, b, ds, var1, var2, gamma1s, gamma2s,
@@ -573,7 +574,7 @@ class hom_model:
             i1, e1 = integrate.quad(fun1, d - eps, d + eps)
             i2, e2 = integrate.quad(fun2, d - eps, d + eps)
             if i2 == 0:
-                print("Division by zero upcoming")
+                print "Division by zero upcoming"
                 return np.PINF
             return np.log2(i1 / i2)
 
@@ -590,7 +591,7 @@ class hom_model:
             train.shape
         except AttributeError as N:
             err_msg ="Incorrect use of function calc_thres:\n"
-            print(err_msg, self.calc_thres.__doc__)
+            print err_msg + self.calc_thres.__doc__
             return None
         
         groups = train.dropna()
