@@ -1,5 +1,4 @@
 import detecting_duplicates
-from detecting_duplicates import Algorithm
 
 import datetime
 from datetime import timezone
@@ -52,7 +51,7 @@ class TestMediumSizeDataFrames(unittest.TestCase):
         max_val = int(train.loc[train.index[-1], 'Issue_id'])
         for i in train.index:
             train.loc[i,'Duplicate'] = smaller_than(train.loc[i,'Duplicate'], max_val)
-        self.hom = detecting_duplicates.hom_model(data, train, [Algorithm.HOM]*4 + [Algorithm.DEV]*2, eps)
+        self.hom = detecting_duplicates.hom_model(data, train, [True]*4 + [False]*2, eps)
         self.hom.calc_thres(train)
 
     def test_real_duplicates(self):
