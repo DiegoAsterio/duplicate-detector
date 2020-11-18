@@ -73,7 +73,7 @@ class TestHitOrMissModule(unittest.TestCase):
             model_ds[k] = list(model.ds[k])
         ds = {'A': [-1.0,-2.0,-3.0,-1.0,-2.0,-1.0],
               'B': [0.0,-1.0,-2.0,-1.0,-2.0,-1.0]}
-        
+
         self.assertEqual(model_ds, ds,
                          'incorrect differences')
 
@@ -84,7 +84,7 @@ class TestHitOrMissModule(unittest.TestCase):
         train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
         model = hom_model(df, train, [True]*2, None)
-        dp = {'A': 4/3, 'B': 4/5}
+        dp = {'A': 4.0/3, 'B': 4.0/5}
         self.assertEqual(model.cs, dp,
                          'incorrect discordant pairs freq.')
 
@@ -217,7 +217,7 @@ class hom_model:
     def blank_freq(self):
         """Returns the blank frequencies for each column"""
         (n, _) = self.data.shape
-        calc_bf = lambda x: 1 - x / n
+        calc_bf = lambda x: 1 - float(x)/ n
         return self.data.count().apply(calc_bf).to_dict()
 
     def cols(self, alg):
@@ -226,12 +226,13 @@ class hom_model:
         return (col for col, a in it if a == alg)
 
     def get_fs(self, col):
-        df = self.data
-        (n, _) = df.shape  # nxm -> n
-        norm = lambda x: x / n
-        # TODO: Numba Accelerated Routine
-        pdb.set_trace()
-        return df.groupby(col).size().apply(norm).to_dict()
+        df = self.data.loc[:,col].dropna()
+        (n, _) = self.data.shape  # nxm -> n
+        norm = lambda x: float(x) / n
+        if not df.empty:
+            return self.data.groupby(col).size().apply(norm).to_dict()
+        else:
+            return {}
     
     def rel_freq(self):
         """Returns the frequency for each value inside each column"""
@@ -264,7 +265,7 @@ class hom_model:
             print err_msg + self.differences.__doc__
             return None
 
-        train_data = train.dropna().iloc[:, 0].apply(int)
+        train_data = train.dropna().loc[:, 'Issue_id'].apply(int)
         cols = self.cols(False)
         return {col: self.get_ds(train_data, col) for col in cols}
 
@@ -312,7 +313,7 @@ class hom_model:
             for key in self.betas[col]:
                 s += (self.betas[col][key])**2
             # The two is due to the fact that DPs are added twice
-            ret[col] /= n * (1 - s)
+            ret[col] = float(ret[col])/n * (1 - s)
         return ret
 
     def calculate_frequencies(self):
@@ -389,28 +390,28 @@ class hom_model:
 
         return a1, a2, var1, sq_sigma2
 
-    def alfa1(a1, a2, b):
+    def alfa1(self,a1, a2, b):
         """Probability of the first distribution in the mixture model"""
-        return (1 - a1 - a2 - b)**2
+        return float((1 - a1 - a2 - b)**2)
 
-    def alfa2(a2, b):
+    def alfa2(self,a2, b):
         """Probability of the second distribution in the mixture model"""
-        return a2 * (2 - 2 * b - a2)
+        return float(a2 * (2 - 2 * b - a2))
 
-    def alfa3(a1, a2, b):
+    def alfa3(self,a1, a2, b):
         """Probability of the third distribution in the mixture model"""
-        return 2 * a1 * (1 - a1 - a2 - b)
+        return float(2 * a1 * (1 - a1 - a2 - b))
 
-    def alfa4(a1):
+    def alfa4(self,a1):
         """Probability of the second distribution in the mixture model"""
-        return a1**2
+        return float(a1**2)
 
     def gammas(self, col, di, a1, a2, b, var1, var2):
         """Calculates responsability for a specific difference within the EM algorithm"""
-        alfa1 = hom_model.alfa1(a1, a2, b)
-        alfa2 = hom_model.alfa2(a2, b)
-        alfa3 = hom_model.alfa3(a1, a2, b)
-        alfa4 = hom_model.alfa4(a1)
+        alfa1 = self.alfa1(a1, a2, b)
+        alfa2 = self.alfa2(a2, b)
+        alfa3 = self.alfa3(a1, a2, b)
+        alfa4 = self.alfa4(a1)
 
         norm1 = norm.pdf(di, 0, var1)
 
@@ -421,7 +422,7 @@ class hom_model:
 
         norm3 = norm.pdf(di, 0, 2 * var2)
 
-        gamma1 = alfa1 * norm1
+        gammas1 = alfa1 * norm1
         gamma2 = alfa2 * f
         gamma3 = alfa3 * norm2
         gamma4 = alfa4 * norm3
@@ -457,10 +458,10 @@ class hom_model:
         pi3 = sum(gamma3s)/len(gamma3s)
         pi4 = sum(gamma4s)/len(gamma4s)
 
-        k1 = hom_model.alfa1(a1, a2, b)
-        k2 = hom_model.alfa2(a2, b)
-        k3 = hom_model.alfa3(a1, a2, b)
-        k4 = hom_model.alfa4(a1)
+        k1 = self.alfa1(a1, a2, b)
+        k2 = self.alfa2(a2, b)
+        k3 = self.alfa3(a1, a2, b)
+        k4 = self.alfa4(a1)
         for d in ds:
             di = norm.pdf(d, 0, var1)
             l1 = np.log2(k1 * di)
@@ -494,16 +495,16 @@ class hom_model:
         if np.isnan(d):
             return 1 - (1 - b)**2
         else:
-            k1 = hom_model.alfa1(a1, a2, b)
+            k1 = self.alfa1(a1, a2, b)
             di = norm.pdf(d, 0, var1)
 
-            k2 = hom_model.alfa2(a2, b)
+            k2 = self.alfa2(a2, b)
             n1 = norm.pdf(d, 0, var2)
 
-            k3 = hom_model.alfa3(a1, a2, b)
+            k3 = self.alfa3(a1, a2, b)
             n2 = norm.pdf(d, 0, 2 * var2)
 
-            k4 = hom_model.alfa4(a1)
+            k4 = self.alfa4(a1)
             f = norm.pdf(d, loc, scale)
 
             ret = k1 * di + k2 * f + k3 * n1 + k4 * n2
@@ -576,7 +577,7 @@ class hom_model:
             if i2 == 0:
                 print "Division by zero upcoming"
                 return np.PINF
-            return np.log2(i1 / i2)
+            return np.log2(float(i1) / i2)
 
     def calc_thres(self, train):
         """Calculate the threshold to classify a pair as duplicate.
@@ -620,9 +621,9 @@ class hom_model:
         mu, su = norm.fit(score_samp)
 
         dupl = 0.005
-        self.t = hom_model.solve_bayesrule(dupl, mr, sr, mu, su)
+        self.t = self.solve_bayesrule(dupl, mr, sr, mu, su)
 
-    def solve_bayesrule(dupl, mr, sr, mu, su):
+    def solve_bayesrule(self,dupl, mr, sr, mu, su):
         """Returns the score that gives at least 0.95 probability 
         of two rows being duplicates considered that score
         """
