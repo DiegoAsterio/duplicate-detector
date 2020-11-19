@@ -1,12 +1,30 @@
 import detecting_duplicates
 
 import datetime
-from datetime import timezone
+from datetime import tzinfo, timedelta
 
 import pandas as pd
 import numpy as np
 
 import unittest
+
+# A UTC class.
+
+ZERO = timedelta(0)
+
+class UTC(tzinfo):
+    """UTC"""
+
+    def utcoffset(self, dt):
+        return ZERO
+
+    def tzname(self, dt):
+        return "UTC"
+
+    def dst(self, dt):
+        return ZERO
+
+utc = UTC()
 
 def smaller_than(s, max_val):
     vals = s.split(';')
@@ -23,7 +41,7 @@ class TestMediumSizeDataFrames(unittest.TestCase):
 
         selection = ["Issue_id",
                      "Priority",
-                     # "Component",
+                    # "Component",
                      # "Duplicated_issue",
                      # "Title",
                      # "Description",
@@ -39,7 +57,7 @@ class TestMediumSizeDataFrames(unittest.TestCase):
         data.loc[:,'Created_time'] = pd.to_datetime(data.loc[:,'Created_time'], infer_datetime_format=True)
         data.loc[:,'Resolved_time'] = pd.to_datetime(data.loc[:,'Resolved_time'], infer_datetime_format=True)
 
-        to_secs = (lambda t:(t - datetime.datetime(1970,1,1, tzinfo=timezone.utc)).total_seconds())
+        to_secs = (lambda t:(t - datetime.datetime(1970,1,1, tzinfo=utc)).total_seconds())
     
         data.loc[:,'Created_time'] = data.loc[:,'Created_time'].apply(to_secs)
         data.loc[:,'Resolved_time'] = data.loc[:,'Resolved_time'].apply(to_secs)
