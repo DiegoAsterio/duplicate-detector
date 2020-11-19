@@ -293,15 +293,15 @@ class hom_model:
             return None
 
         groups = train.dropna()  # Drop rows with invalid values
-        (n, _) = groups.shape
 
-        cols = self.cols(True)
-        ret = {col: 0 for col in cols}
+        total_pairs = 0
+        ret = {col: 0 for col in self.cols(True)}
         for _, row in groups.iterrows():
             i = int(row[0])  # StringToInt to get i
             js = [int(x)
                   for x in row[1].split(';')]  # [StringToInt] to get [j]
             for j in js:
+                total_pairs += 1
                 for col in self.cols(True):
                     if self.data.loc[i, col] != self.data.loc[j, col]:
                         # Notice that every discordant pair DP is
@@ -313,7 +313,7 @@ class hom_model:
             for key in self.betas[col]:
                 s += (self.betas[col][key])**2
             # The two is due to the fact that DPs are added twice
-            ret[col] = float(ret[col])/n * (1 - s)
+            ret[col] = float(ret[col])/(total_pairs * (1 - s))
         return ret
 
     def calculate_frequencies(self):
