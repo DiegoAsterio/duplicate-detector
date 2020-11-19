@@ -422,7 +422,7 @@ class hom_model:
 
         norm3 = norm.pdf(di, 0, 2 * var2)
 
-        gammas1 = alfa1 * norm1
+        gamma1 = alfa1 * norm1
         gamma2 = alfa2 * f
         gamma3 = alfa3 * norm2
         gamma4 = alfa4 * norm3
