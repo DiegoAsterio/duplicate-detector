@@ -65,7 +65,7 @@ class TestHitOrMissModule(unittest.TestCase):
     def test_calculate_differences(self):
         df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
                            'B': [5.0, 5.0, 6.0, 7.0]})
-        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+        train = pd.DataFrame({'ID': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
         model = hom_model(df, train, [False]*2, None)
         model_ds = dict()
@@ -81,7 +81,7 @@ class TestHitOrMissModule(unittest.TestCase):
     def test_discordant_pairs_frequency(self):
         df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
                            'B': [5.0, 5.0, 6.0, 7.0]})
-        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+        train = pd.DataFrame({'ID': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
         model = hom_model(df, train, [True]*2, None)
         dp = {'A': 4.0/3, 'B': 4.0/5}
@@ -91,7 +91,7 @@ class TestHitOrMissModule(unittest.TestCase):
     def test_saving_coefficients(self):
         df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
                            'B': [5.0, 5.0, 6.0, 7.0]})
-        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+        train = pd.DataFrame({'ID': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
         model = hom_model(df, train, [True]*2, None)
 
@@ -118,7 +118,7 @@ class TestHitOrMissModule(unittest.TestCase):
     def test_initialize_from_file(self):
         df = pd.DataFrame({'A': [1.0, 2.0, 3.0, 4.0],
                            'B': [5.0, 5.0, 6.0, 7.0]})
-        train = pd.DataFrame({'Issue_id': ["0", "1", "2", "3"],
+        train = pd.DataFrame({'ID': ["0", "1", "2", "3"],
                               'Duplicate': ["1", "0", "3", "2"]})
         model = hom_model(df, train, [True]*2, None)
 
@@ -265,7 +265,7 @@ class hom_model:
             print err_msg + self.differences.__doc__
             return None
 
-        train_data = train.dropna().loc[:, 'Issue_id'].apply(int)
+        train_data = train.dropna().loc[:, 'ID'].apply(int)
         cols = self.cols(False)
         return {col: self.get_ds(train_data, col) for col in cols}
 
@@ -298,11 +298,12 @@ class hom_model:
         ret = {col: 0 for col in self.cols(True)}
         for _, row in groups.iterrows():
             i = int(row[0])  # StringToInt to get i
-            js = [int(x)
-                  for x in row[1].split(';')]  # [StringToInt] to get [j]
+            js = (int(x)
+                  for x in row[1].split(';'))  # StringToInt to get js
             for j in js:
                 total_pairs += 1
                 for col in self.cols(True):
+                    pdb.set_trace()
                     if self.data.loc[i, col] != self.data.loc[j, col]:
                         # Notice that every discordant pair DP is
                         # added twice. First when chosen by (i,j)
@@ -313,6 +314,7 @@ class hom_model:
             for key in self.betas[col]:
                 s += (self.betas[col][key])**2
             # The two is due to the fact that DPs are added twice
+            pdb.set_trace()
             ret[col] = float(ret[col])/(total_pairs * (1 - s))
         return ret
 
@@ -341,9 +343,10 @@ class hom_model:
         var1 = 0.001*var2
 
         # Initial probability guess
-        b = self.bs[col]
-        a1 = (1-b)*random.random()
-        a2 = (1 - b - a1)*random.random()
+        b, a1, a2 = self.bs[col], 1, 1
+        while b + a1 + a2 < 1:
+            a1 = random.random()
+            a2 = random.random()
 
         d = np.linalg.norm([a1, a2, var1, var2])
         eps = 0.001
@@ -600,8 +603,8 @@ class hom_model:
         score_dupl = []
         for _, row in groups.iterrows():
             j = int(row[0])  # StringToInt to get i
-            ks = [int(x)
-                  for x in row[1].split(';')]  # [StringToInt] to get [j]
+            ks = (int(x)
+                  for x in row[1].split(';'))  # [StringToInt] to get [j]
             for k in ks:
                 score = self.wjk(j, k)
                 if np.isfinite(score):
